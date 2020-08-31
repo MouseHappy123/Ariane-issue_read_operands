@@ -1,6 +1,47 @@
 from pyhcl import *
 from functools import reduce
 
+# defined in ariane_pkg.sv
+
+NONE      = 0
+LOAD      = 1
+STORE     = 2
+ALU       = 3
+CTRL_FLOW = 4
+MULT      = 5
+CSR       = 6
+FPU       = 7
+FPU_VEC   = 8
+
+fu_data_o = {}
+fu_q = {}
+operator_q = {}
+trans_id_q = {}
+alu_valid_o = {}
+branch_valid_o = {}
+lsu_valid_o = {}
+csr_valid_o = {}
+mult_valid_o = {}
+fpu_valid_o = {}
+fpu_fmt_o = {}
+fpu_rm_o = {}
+issue_instr_i = {}
+flu_ready_i = {}
+fpu_ready_i = {}
+lsu_ready_i = {}
+rs1_valid_i = {}
+rs2_valid_i = {}
+rs3_valid_i = {}
+
+def is_rs1_fpr(): ...
+def is_rs2_fpr(): ...
+def is_imm_fpr(): ...
+
+rd_clobber_fpr_i = []
+rd_clobber_gpr_i = []
+
+REG_ADDR_SIZE = 6
+
 def issue_read_operands(NR_COMMIT_PORTS: int):
   class issue_read_operands(Module):
     io = IO(
@@ -94,20 +135,20 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     # orig_instr <<= riscv::instruction_t'(issue_instr_i.ex.tval[31:0]);
 
     # ID <-> EX registers
-    fu_data_o.operand_a <<= operand_a_q;
-    fu_data_o.operand_b <<= operand_b_q;
-    fu_data_o.fu        <<= fu_q;
-    fu_data_o.operator  <<= operator_q;
-    fu_data_o.trans_id  <<= trans_id_q;
-    fu_data_o.imm       <<= imm_q;
-    alu_valid_o         <<= alu_valid_q;
-    branch_valid_o      <<= branch_valid_q;
-    lsu_valid_o         <<= lsu_valid_q;
-    csr_valid_o         <<= csr_valid_q;
-    mult_valid_o        <<= mult_valid_q;
-    fpu_valid_o         <<= fpu_valid_q;
-    fpu_fmt_o           <<= fpu_fmt_q;
-    fpu_rm_o            <<= fpu_rm_q;
+    fu_data_o.operand_a <<= operand_a_q
+    fu_data_o.operand_b <<= operand_b_q
+    fu_data_o.fu        <<= fu_q
+    fu_data_o.operator  <<= operator_q
+    fu_data_o.trans_id  <<= trans_id_q
+    fu_data_o.imm       <<= imm_q
+    alu_valid_o         <<= alu_valid_q
+    branch_valid_o      <<= branch_valid_q
+    lsu_valid_o         <<= lsu_valid_q
+    csr_valid_o         <<= csr_valid_q
+    mult_valid_o        <<= mult_valid_q
+    fpu_valid_o         <<= fpu_valid_q
+    fpu_fmt_o           <<= fpu_fmt_q
+    fpu_rm_o            <<= fpu_rm_q
 
     # ---------------
     # Issue Stage
@@ -116,19 +157,16 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     # select the right busy signal
     # this obviously depends on the functional unit we need
     # always_comb begin : unit_busy
-    #     unique case (issue_instr_i.fu)
-    #         NONE:
-    #             fu_busy = 1'b0;
-    #         ALU, CTRL_FLOW, CSR, MULT:
-    #             fu_busy = ~flu_ready_i;
-    #         FPU, FPU_VEC:
-    #             fu_busy = ~fpu_ready_i;
-    #         LOAD, STORE:
-    #             fu_busy = ~lsu_ready_i;
-    #         default:
-    #             fu_busy = 1'b0;
-    #     endcase
-    # end
+    with when(issue_instr_i.fu == NONE):
+        fu_busy = U.w(1)(0)
+    with elsewhen(issue_instr_i.fu == ALU | issue_instr_i.fu == CTRL_FLOW | issue_instr_i.fu == CSR | issue_instr_i.fu == MULT):
+        fu_busy = ~flu_ready_i
+    with elsewhen(issue_instr_i == FPU | issue_instr_i == FPU_VEC):
+        fu_busy = ~fpu_ready_i
+    with elsewhen(issue_instr_i == LOAD | issue_instr_i == STORE):
+        fu_busy = ~lsu_ready_i
+    with otherwise():
+        fu_busy = U.w(1)(0)
 
     # ---------------
     # Register stage
@@ -136,44 +174,42 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     # check that all operands are available, otherwise stall
     # forward corresponding register
     #TODO: always_comb begin : operands_available
-        stall = U.w(1)(0);
-        # operand forwarding signals
-        forward_rs1 = U.w(1)(0);
-        forward_rs2 = U.w(1)(0);
-        forward_rs3 = U.w(1)(0); # FPR only
-        # poll the scoreboard for those values
-        rs1_o = issue_instr_i.rs1;
-        rs2_o = issue_instr_i.rs2;
-        rs3_o = issue_instr_i.result[REG_ADDR_SIZE-1:0]; # rs3 is encoded in imm field
+    stall = U.w(1)(0)
+    # operand forwarding signals
+    forward_rs1 = U.w(1)(0)
+    forward_rs2 = U.w(1)(0)
+    forward_rs3 = U.w(1)(0); # FPR only
+    # poll the scoreboard for those values
+    rs1_o = issue_instr_i.rs1
+    rs2_o = issue_instr_i.rs2
+    rs3_o = issue_instr_i.result[REG_ADDR_SIZE-1:0]; # rs3 is encoded in imm field
 
-        # 0. check that we are not using the zimm type in RS1
-        #    as this is an immediate we do not have to wait on anything here
-        # 1. check if the source registers are clobbered --> check appropriate clobber list (gpr/fpr)
-        # 2. poll the scoreboard
-        with when(!issue_instr_i.use_zimm & (is_rs1_fpr(issue_instr_i.op) ? rd_clobber_fpr_i[issue_instr_i.rs1] != NONE
-                                                                     : rd_clobber_gpr_i[issue_instr_i.rs1] != NONE)):
-            # check if the clobbering instruction is not a CSR instruction, CSR instructions can only
-            # be fetched through the register file since they can't be forwarded
-            # if the operand is available, forward it. CSRs don't write to/from FPR
-            with when(rs1_valid_i & (is_rs1_fpr(issue_instr_i.op) ? U.w(1)(1) : rd_clobber_gpr_i[issue_instr_i.rs1] != CSR)):
-                forward_rs1 = U.w(1)(1);
-            with otherwise(): # the operand is not available -> stall
-                stall = U.w(1)(1);
+    # 0. check that we are not using the zimm type in RS1
+    #    as this is an immediate we do not have to wait on anything here
+    # 1. check if the source registers are clobbered --> check appropriate clobber list (gpr/fpr)
+    # 2. poll the scoreboard
+    with when(not issue_instr_i.use_zimm and Mux(is_rs1_fpr(issue_instr_i.op), rd_clobber_fpr_i[issue_instr_i.rs1] != NONE, rd_clobber_gpr_i[issue_instr_i.rs1] != NONE)):
+        # check if the clobbering instruction is not a CSR instruction, CSR instructions can only
+        # be fetched through the register file since they can't be forwarded
+        # if the operand is available, forward it. CSRs don't write to/from FPR
+        with when(rs1_valid_i & Mux(is_rs1_fpr(issue_instr_i.op), U.w(1)(1), rd_clobber_gpr_i[issue_instr_i.rs1] != CSR)):
+            forward_rs1 = U.w(1)(1)
+        with otherwise(): # the operand is not available -> stall
+            stall = U.w(1)(1)
 
-        with when(is_rs2_fpr(issue_instr_i.op) ? rd_clobber_fpr_i[issue_instr_i.rs2] != NONE
-                                         : rd_clobber_gpr_i[issue_instr_i.rs2] != NONE):
-            # if the operand is available, forward it. CSRs don't write to/from FPR
-            with when(rs2_valid_i && (is_rs2_fpr(issue_instr_i.op) ? U.w(1)(1) : rd_clobber_gpr_i[issue_instr_i.rs2] != CSR)):
-                forward_rs2 = U.w(1)(1);
-            with otherwise(): # the operand is not available -> stall
-                stall = U.w(1)(1);
+    with when(Mux(is_rs2_fpr(issue_instr_i.op), rd_clobber_fpr_i[issue_instr_i.rs2] != NONE, rd_clobber_gpr_i[issue_instr_i.rs2] != NONE)):
+        # if the operand is available, forward it. CSRs don't write to/from FPR
+        with when(rs2_valid_i & Mux(is_rs2_fpr(issue_instr_i.op), U.w(1)(1), rd_clobber_gpr_i[issue_instr_i.rs2] != CSR)):
+            forward_rs2 = U.w(1)(1)
+        with otherwise(): # the operand is not available -> stall
+            stall = U.w(1)(1)
 
-        with when(is_imm_fpr(issue_instr_i.op) & rd_clobber_fpr_i[issue_instr_i.result[REG_ADDR_SIZE-1:0]] != NONE):
-            # if the operand is available, forward it. CSRs don't write to/from FPR so no need to check
-            with when(rs3_valid_i):
-                forward_rs3 = U.w(1)(1);
-            with otherwise(): # the operand is not available -> stall
-                stall = U.w(1)(1);
+    with when(is_imm_fpr(issue_instr_i.op) & rd_clobber_fpr_i[issue_instr_i.result[REG_ADDR_SIZE-1:0]] != NONE):
+        # if the operand is available, forward it. CSRs don't write to/from FPR so no need to check
+        with when(rs3_valid_i):
+            forward_rs3 = U.w(1)(1)
+        with otherwise(): # the operand is not available -> stall
+            stall = U.w(1)(1)
 
   return issue_read_operands()
 
