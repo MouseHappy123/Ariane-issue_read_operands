@@ -1,9 +1,21 @@
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+
 from pyhcl import *
 from functools import reduce
 from ariane_pkg import *
 import riscv_pkg as riscv
 
-def issue_read_operands(NR_COMMIT_PORTS: int):
+def issue_read_operands(NR_COMMIT_PORTS: int = 2):
   class issue_read_operands(Module):
     io = IO(
       clk_i=Input(U.w(4)), # Clock
@@ -59,7 +71,6 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
       # input  scoreboard_entry     commit_instr_i,
       # output logic                commit_ack_o
     )
-
     stall=Wire(U.w(4))   # stall signal, we do not want to fetch any more entries
     fu_busy=Wire(U.w(4)) # functional unit is busy
     operand_a_regfile=Wire(Vec(64,U.w(4))) 
@@ -99,23 +110,23 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     # original instruction stored in tval
     orig_instr = riscv.instruction_t
     #TODO
-    # orig_instr <<= riscv::instruction_t'(issue_instr_i.ex.tval[31:0]);
+    # orig_instr <<= riscv::instruction_t'(io.issue_instr_i.ex.tval[31:0]);
 
     # ID <-> EX registers
-    fu_data_o.operand_a <<= operand_a_q
-    fu_data_o.operand_b <<= operand_b_q
-    fu_data_o.fu        <<= fu_q
-    fu_data_o.operator  <<= operator_q
-    fu_data_o.trans_id  <<= trans_id_q
-    fu_data_o.imm       <<= imm_q
-    alu_valid_o         <<= alu_valid_q
-    branch_valid_o      <<= branch_valid_q
-    lsu_valid_o         <<= lsu_valid_q
-    csr_valid_o         <<= csr_valid_q
-    mult_valid_o        <<= mult_valid_q
-    fpu_valid_o         <<= fpu_valid_q
-    fpu_fmt_o           <<= fpu_fmt_q
-    fpu_rm_o            <<= fpu_rm_q
+    io.fu_data_o.operand_a <<= operand_a_q
+    io.fu_data_o.operand_b <<= operand_b_q
+    io.fu_data_o.fu        <<= fu_q
+    io.fu_data_o.operator  <<= operator_q
+    io.fu_data_o.trans_id  <<= trans_id_q
+    io.fu_data_o.imm       <<= imm_q
+    io.alu_valid_o         <<= alu_valid_q
+    io.branch_valid_o      <<= branch_valid_q
+    io.lsu_valid_o         <<= lsu_valid_q
+    io.csr_valid_o         <<= csr_valid_q
+    io.mult_valid_o        <<= mult_valid_q
+    io.fpu_valid_o         <<= fpu_valid_q
+    io.fpu_fmt_o           <<= fpu_fmt_q
+    io.fpu_rm_o            <<= fpu_rm_q
 
     # ---------------
     # Issue Stage
@@ -124,14 +135,17 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     # select the right busy signal
     # this obviously depends on the functional unit we need
     # always_comb begin : unit_busy
-    with when(issue_instr_i.fu == NONE):
+    with when(io.issue_instr_i.fu == NONE):
         fu_busy = U.w(1)(0)
-    with elsewhen(issue_instr_i.fu == ALU | issue_instr_i.fu == CTRL_FLOW | issue_instr_i.fu == CSR | issue_instr_i.fu == MULT):
-        fu_busy = ~flu_ready_i
-    with elsewhen(issue_instr_i == FPU | issue_instr_i == FPU_VEC):
-        fu_busy = ~fpu_ready_i
-    with elsewhen(issue_instr_i == LOAD | issue_instr_i == STORE):
-        fu_busy = ~lsu_ready_i
+    with elsewhen(io.issue_instr_i.fu == ALU or \
+                  io.issue_instr_i.fu == CTRL_FLOW or \
+                  io.issue_instr_i.fu == CSR or \
+                  io.issue_instr_i.fu == MULT):
+        fu_busy = ~io.flu_ready_i
+    with elsewhen(io.issue_instr_i == FPU or io.issue_instr_i == FPU_VEC):
+        fu_busy = ~io.fpu_ready_i
+    with elsewhen(io.issue_instr_i == LOAD or io.issue_instr_i == STORE):
+        fu_busy = ~io.lsu_ready_i
     with otherwise():
         fu_busy = U.w(1)(0)
 
@@ -147,33 +161,43 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     forward_rs2 = U.w(1)(0)
     forward_rs3 = U.w(1)(0); # FPR only
     # poll the scoreboard for those values
-    rs1_o = issue_instr_i.rs1
-    rs2_o = issue_instr_i.rs2
-    rs3_o = issue_instr_i.result[REG_ADDR_SIZE-1:0]; # rs3 is encoded in imm field
+    io.rs1_o = io.issue_instr_i.rs1
+    io.rs2_o = io.issue_instr_i.rs2
+    io.rs3_o = io.issue_instr_i.result[REG_ADDR_SIZE-1:0]; # rs3 is encoded in imm field
 
     # 0. check that we are not using the zimm type in RS1
     #    as this is an immediate we do not have to wait on anything here
     # 1. check if the source registers are clobbered --> check appropriate clobber list (gpr/fpr)
     # 2. poll the scoreboard
-    with when(not issue_instr_i.use_zimm and Mux(is_rs1_fpr(issue_instr_i.op), rd_clobber_fpr_i[issue_instr_i.rs1] != NONE, rd_clobber_gpr_i[issue_instr_i.rs1] != NONE)):
+    with when(not io.issue_instr_i.use_zimm and \
+              Mux(is_rs1_fpr(io.issue_instr_i.op), 
+                  io.rd_clobber_fpr_i[io.issue_instr_i.rs1] != NONE, 
+                  io.rd_clobber_gpr_i[io.issue_instr_i.rs1] != NONE)):
         # check if the clobbering instruction is not a CSR instruction, CSR instructions can only
         # be fetched through the register file since they can't be forwarded
         # if the operand is available, forward it. CSRs don't write to/from FPR
-        with when(rs1_valid_i & Mux(is_rs1_fpr(issue_instr_i.op), U.w(1)(1), rd_clobber_gpr_i[issue_instr_i.rs1] != CSR)):
+        with when(io.rs1_valid_i and \
+                  Mux(is_rs1_fpr(io.issue_instr_i.op), 
+                      U.w(1)(1), 
+                      io.rd_clobber_gpr_i[io.issue_instr_i.rs1] != CSR)):
             forward_rs1 = U.w(1)(1)
         with otherwise(): # the operand is not available -> stall
             stall = U.w(1)(1)
 
-    with when(Mux(is_rs2_fpr(issue_instr_i.op), rd_clobber_fpr_i[issue_instr_i.rs2] != NONE, rd_clobber_gpr_i[issue_instr_i.rs2] != NONE)):
+    with when(Mux(is_rs2_fpr(io.issue_instr_i.op), io.rd_clobber_fpr_i[io.issue_instr_i.rs2] != NONE, io.rd_clobber_gpr_i[io.issue_instr_i.rs2] != NONE)):
         # if the operand is available, forward it. CSRs don't write to/from FPR
-        with when(rs2_valid_i & Mux(is_rs2_fpr(issue_instr_i.op), U.w(1)(1), rd_clobber_gpr_i[issue_instr_i.rs2] != CSR)):
+        with when(io.rs2_valid_i and \
+                  Mux(is_rs2_fpr(io.issue_instr_i.op), 
+                      U.w(1)(1), 
+                      io.rd_clobber_gpr_i[io.issue_instr_i.rs2] != CSR)):
             forward_rs2 = U.w(1)(1)
         with otherwise(): # the operand is not available -> stall
             stall = U.w(1)(1)
 
-    with when(is_imm_fpr(issue_instr_i.op) & rd_clobber_fpr_i[issue_instr_i.result[REG_ADDR_SIZE-1:0]] != NONE):
+    with when(is_imm_fpr(io.issue_instr_i.op) and \
+              io.rd_clobber_fpr_i[io.issue_instr_i.result[REG_ADDR_SIZE-1:0]] != NONE):
         # if the operand is available, forward it. CSRs don't write to/from FPR so no need to check
-        with when(rs3_valid_i):
+        with when(io.rs3_valid_i):
             forward_rs3 = U.w(1)(1)
         with otherwise(): # the operand is not available -> stall
             stall = U.w(1)(1)
@@ -184,10 +208,12 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     operand_b_n = operand_b_regfile
     # immediates are the third operands in the store case
     # for FP operations, the imm field can also be the third operand from the regfile
-    imm_n      = Mux(is_imm_fpr(issue_instr_i.op), operand_c_regfile, issue_instr_i.result)
-    trans_id_n = issue_instr_i.trans_id
-    fu_n       = issue_instr_i.fu
-    operator_n = issue_instr_i.op
+    imm_n      = Mux(is_imm_fpr(io.issue_instr_i.op), 
+                     operand_c_regfile, 
+                     io.issue_instr_i.result)
+    trans_id_n = io.issue_instr_i.trans_id
+    fu_n       = io.issue_instr_i.fu
+    operator_n = io.issue_instr_i.op
     # or should we forward
     with when(forward_rs1):
         operand_a_n  = io.rs1_i
@@ -199,84 +225,133 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
         imm_n  = io.rs3_i
 
     # use the PC as operand a
-    with when(issue_instr_i.use_pc):
+    with when(io.issue_instr_i.use_pc):
         ...
         #TODO
-        # operand_a_n = {{64-riscv.VLEN{issue_instr_i.pc[riscv.VLEN-1]}}, issue_instr_i.pc}
+        # operand_a_n = {{64-riscv.VLEN{io.issue_instr_i.pc[riscv.VLEN-1]}}, io.issue_instr_i.pc}
 
     # use the zimm as operand a
-    with when(issue_instr_i.use_zimm):
+    with when(io.issue_instr_i.use_zimm):
+        ...
         # zero extend operand a
         #TODO
-        operand_a_n = {59'b0, issue_instr_i.rs1[4:0]};
+        # operand_a_n = {59'b0, io.issue_instr_i.rs1[4:0]};
 
     # or is it an immediate (including PC), this is not the case for a store and control flow instructions
     # also make sure operand B is not already used as an FP operand
-    if (issue_instr_i.use_imm && (issue_instr_i.fu != STORE) && (issue_instr_i.fu != CTRL_FLOW) && !is_rs2_fpr(issue_instr_i.op)) begin
-        operand_b_n = issue_instr_i.result;
-    end
+    with when(io.issue_instr_i.use_imm and \
+              io.issue_instr_i.fu != STORE and \
+              io.issue_instr_i.fu != CTRL_FLOW and \
+              not is_rs2_fpr(io.issue_instr_i.op)):
+        io.operand_b_n = io.issue_instr_i.result
 
     # FU select, assert the correct valid out signal (in the next cycle)
     # This needs to be like this to make verilator happy. I know its ugly.
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-      if (!rst_ni) begin
-        alu_valid_q    <= 1'b0;
-        lsu_valid_q    <= 1'b0;
-        mult_valid_q   <= 1'b0;
-        fpu_valid_q    <= 1'b0;
-        fpu_fmt_q      <= 2'b0;
-        fpu_rm_q       <= 3'b0;
-        csr_valid_q    <= 1'b0;
-        branch_valid_q <= 1'b0;
-      end else begin
-        alu_valid_q    <= 1'b0;
-        lsu_valid_q    <= 1'b0;
-        mult_valid_q   <= 1'b0;
-        fpu_valid_q    <= 1'b0;
-        fpu_fmt_q      <= 2'b0;
-        fpu_rm_q       <= 3'b0;
-        csr_valid_q    <= 1'b0;
-        branch_valid_q <= 1'b0;
-        # Exception pass through:
-        # If an exception has occurred simply pass it through
-        # we do not want to issue this instruction
-        if (!issue_instr_i.ex.valid && issue_instr_valid_i && issue_ack_o) begin
-            case (issue_instr_i.fu)
-                ALU:
-                    alu_valid_q    <= 1'b1;
-                CTRL_FLOW:
-                    branch_valid_q <= 1'b1;
-                MULT:
-                    mult_valid_q   <= 1'b1;
-                FPU : begin
-                    fpu_valid_q    <= 1'b1;
-                    fpu_fmt_q      <= orig_instr.rftype.fmt; # fmt bits from instruction
-                    fpu_rm_q       <= orig_instr.rftype.rm;  # rm bits from instruction
-                end
-                FPU_VEC : begin
-                    fpu_valid_q    <= 1'b1;
-                    fpu_fmt_q      <= orig_instr.rvftype.vfmt;         # vfmt bits from instruction
-                    fpu_rm_q       <= {2'b0, orig_instr.rvftype.repl}; # repl bit from instruction
-                end
-                LOAD, STORE:
-                    lsu_valid_q    <= 1'b1;
-                CSR:
-                    csr_valid_q    <= 1'b1;
-                default:;
-            endcase
-        end
-        # if we got a flush request, de-assert the valid flag, otherwise we will start this
-        # functional unit with the wrong inputs
-        if (flush_i) begin
-            alu_valid_q    <= 1'b0;
-            lsu_valid_q    <= 1'b0;
-            mult_valid_q   <= 1'b0;
-            fpu_valid_q    <= 1'b0;
-            csr_valid_q    <= 1'b0;
-            branch_valid_q <= 1'b0;
-        end
-      end
-    end
+    # always_ff @(posedge clk_i or negedge rst_ni) begin
+    with when(not io.rst_ni):
+        alu_valid_q    <<= U.w(1)(0)
+        lsu_valid_q    <<= U.w(1)(0)
+        mult_valid_q   <<= U.w(1)(0)
+        fpu_valid_q    <<= U.w(1)(0)
+        fpu_fmt_q      <<= U.w(2)(0)
+        fpu_rm_q       <<= U.w(3)(0)
+        csr_valid_q    <<= U.w(1)(0)
+        branch_valid_q <<= U.w(1)(0)
+    with otherwise():
+        alu_valid_q    <<= U.w(1)(0)
+        lsu_valid_q    <<= U.w(1)(0)
+        mult_valid_q   <<= U.w(1)(0)
+        fpu_valid_q    <<= U.w(1)(0)
+        fpu_fmt_q      <<= U.w(2)(0)
+        fpu_rm_q       <<= U.w(3)(0)
+        csr_valid_q    <<= U.w(1)(0)
+        branch_valid_q <<= U.w(1)(0)
+    # Exception pass through:
+    # If an exception has occurred simply pass it through
+    # we do not want to issue this instruction
+    with when(not io.issue_instr_i.ex.valid and io.issue_instr_valid_i and io.issue_ack_o):
+        with when(io.issue_instr_i.fu == ALU):
+            alu_valid_q   <<= U.w(1)(1)
+        with elsewhen(io.issue_instr_i.fu == CTRL_FLOW):
+            branch_valid_q<<= U.w(1)(1)
+        with elsewhen(io.issue_instr_i.fu == MULT):
+            mult_valid_q  <<= U.w(1)(1)
+        with elsewhen(io.issue_instr_i.fu == FPU):
+            fpu_valid_q   <<= U.w(1)(1)
+            fpu_fmt_q     <<= orig_instr.rftype.fmt; # fmt bits from instruction
+            fpu_rm_q      <<= orig_instr.rftype.rm;  # rm bits from instruction
+        with elsewhen(io.issue_instr_i.fu == FPU_VEC):
+            fpu_valid_q   <<= U.w(1)(1)
+            fpu_fmt_q     <<= orig_instr.rvftype.vfmt;         # vfmt bits from instruction
+            # TODO
+            # fpu_rm_q      <<= {2'b0, orig_instr.rvftype.repl}; # repl bit from instruction
+        with elsewhen(io.issue_instr_i.fu == LOAD or io.issue_instr_i.fu == STORE):
+            lsu_valid_q   <<= U.w(1)(1)
+        with elsewhen(io.issue_instr_i.fu == CSR):
+            csr_valid_q   <<= U.w(1)(1)
+        with otherwise():
+            ...
+    # if we got a flush request, de-assert the valid flag, otherwise we will start this
+    # functional unit with the wrong inputs
+    with when(io.flush_i):
+        alu_valid_q   <<= U.w(1)(0)
+        lsu_valid_q   <<= U.w(1)(0)
+        mult_valid_q  <<= U.w(1)(0)
+        fpu_valid_q   <<= U.w(1)(0)
+        csr_valid_q   <<= U.w(1)(0)
+        branch_valid_q<<= U.w(1)(0)
+
+    # We can issue an instruction if we do not detect that any other instruction is writing the same
+    # destination register.
+    # We also need to check if there is an unresolved branch in the scoreboard.
+    # always_comb begin : issue_scoreboard
+        # default assignment
+        io.issue_ack_o = U.w(1)(0)
+        # check that we didn't stall, that the instruction we got is valid
+        # and that the functional unit we need is not busy
+        with when(io.issue_instr_valid_i):
+            # check that the corresponding functional unit is not busy
+            with when(not stall and not fu_busy):
+                # -----------------------------------------
+                # WAW - Write After Write Dependency Check
+                # -----------------------------------------
+                # no other instruction has the same destination register -> issue the instruction
+                with when(Mux(is_rd_fpr(io.issue_instr_i.op), 
+                              (io.rd_clobber_fpr_i[io.issue_instr_i.rd] == NONE), 
+                              (io.rd_clobber_gpr_i[io.issue_instr_i.rd] == NONE))):
+                    io.issue_ack_o = U.w(1)(1)
+                # or check that the target destination register will be written in this cycle by the
+                # commit stage
+                # TODO
+                # for (int unsigned i = 0; i < NR_COMMIT_PORTS; i++)
+                for i in range(NR_COMMIT_PORTS):
+                    with when(Mux(is_rd_fpr(io.issue_instr_i.op),
+                              (io.we_fpr_i[i] and io.waddr_i[i] == io.issue_instr_i.rd),
+                              (io.we_gpr_i[i] and io.waddr_i[i] == io.issue_instr_i.rd))):
+                        io.issue_ack_o = U.w(1)(1)
+            # we can also issue the instruction under the following two circumstances:
+            # we can do this even if we are stalled or no functional unit is ready (as we don't need one)
+            # the decoder needs to make sure that the instruction is marked as valid when it does not
+            # need any functional unit or if an exception occurred previous to the execute stage.
+            # 1. we already got an exception
+            with when(io.issue_instr_i.ex.valid):
+                issue_ack_o = U.w(1)(1)
+            # 2. it is an instruction which does not need any functional unit
+            with (io.issue_instr_i.fu == NONE):
+                issue_ack_o = U.w(1)(1)
+        # after a multiplication was issued we can only issue another multiplication
+        # otherwise we will get contentions on the fixed latency bus
+        with (mult_valid_q and io.issue_instr_i.fu != MULT):
+            issue_ack_o = U.w(1)(0)
+
+
+
+
+
+
+        # ----------------------
+        # Integer Register File
+        # ----------------------
 
   return issue_read_operands()
 

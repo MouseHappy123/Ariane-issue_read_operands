@@ -27,7 +27,7 @@ module issue_read_operands #(
     input  logic                                   issue_instr_valid_i,
     output logic                                   issue_ack_o,
     // lookup rd in scoreboard
-    output logic [REG_ADDR_SIZE-1:0]               rs1_o,
+    output logic [  -1:0]               rs1_o,
     input  logic [63:0]                            rs1_i,
     input  logic                                   rs1_valid_i,
     output logic [REG_ADDR_SIZE-1:0]               rs2_o,
@@ -74,11 +74,15 @@ module issue_read_operands #(
     logic stall;   // stall signal, we do not want to fetch any more entries
     logic fu_busy; // functional unit is busy
     logic [63:0] operand_a_regfile, operand_b_regfile;  // operands coming from regfile
+
     logic [FLEN-1:0] operand_c_regfile; // third operand only from fp regfile
     // output flipflop (ID <-> EX)
     logic [63:0] operand_a_n, operand_a_q,
                  operand_b_n, operand_b_q,
                  imm_n, imm_q;
+
+
+
 
     logic          alu_valid_q;
     logic         mult_valid_q;
@@ -90,11 +94,18 @@ module issue_read_operands #(
     logic       branch_valid_q;
 
     logic [TRANS_ID_BITS-1:0] trans_id_n, trans_id_q;
-    fu_op operator_n, operator_q; // operation to perform
-    fu_t  fu_n,       fu_q; // functional unit to use
+
+    // operation to perform
+    fu_op operator_n, operator_q; 
+
+    // functional unit to use
+    fu_t  fu_n,       fu_q; 
+
 
     // forwarding signals
     logic forward_rs1, forward_rs2, forward_rs3;
+
+
 
     // original instruction stored in tval
     riscv::instruction_t orig_instr;
