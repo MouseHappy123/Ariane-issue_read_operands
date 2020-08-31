@@ -1,46 +1,7 @@
 from pyhcl import *
 from functools import reduce
-
-# defined in ariane_pkg.sv
-
-NONE      = 0
-LOAD      = 1
-STORE     = 2
-ALU       = 3
-CTRL_FLOW = 4
-MULT      = 5
-CSR       = 6
-FPU       = 7
-FPU_VEC   = 8
-
-fu_data_o = {}
-fu_q = {}
-operator_q = {}
-trans_id_q = {}
-alu_valid_o = {}
-branch_valid_o = {}
-lsu_valid_o = {}
-csr_valid_o = {}
-mult_valid_o = {}
-fpu_valid_o = {}
-fpu_fmt_o = {}
-fpu_rm_o = {}
-issue_instr_i = {}
-flu_ready_i = {}
-fpu_ready_i = {}
-lsu_ready_i = {}
-rs1_valid_i = {}
-rs2_valid_i = {}
-rs3_valid_i = {}
-
-def is_rs1_fpr(): ...
-def is_rs2_fpr(): ...
-def is_imm_fpr(): ...
-
-rd_clobber_fpr_i = []
-rd_clobber_gpr_i = []
-
-REG_ADDR_SIZE = 6
+from ariane_pkg import *
+import riscv_pkg as riscv
 
 def issue_read_operands(NR_COMMIT_PORTS: int):
   class issue_read_operands(Module):
@@ -50,32 +11,32 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
       # flush
       flush_i=Input(U.w(4)),
       # coming from rename
-      #input  scoreboard_entry_t                      issue_instr_i,
+      issue_instr_i=Input(scoreboard_entry_t),
       issue_instr_valid_i=Input(U.w(4)),
       issue_ack_o=Output(U.w(4)),
       # lookup rd in scoreboard
-      #output logic [REG_ADDR_SIZE-1:0]               rs1_o,
-      rs1_i=Input(Vec(64,U.w(4))),
+      rs1_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
+      rs1_i=Input(Vec(64,U.w(4)), U.w(4)),
       rs1_valid_i=Input(U.w(4)),
-      #output logic [REG_ADDR_SIZE-1:0]               rs2_o,
+      rs2_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
       rs2_i=Input(Vec(64,U.w(4))),
       rs2_valid_i=Input(U.w(4)),
-      #output logic [REG_ADDR_SIZE-1:0]               rs3_o,
-      #input  logic [FLEN-1:0]                        rs3_i,
+      rs3_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
+      rs3_i=Input(Vec(FLEN, U.w(4))),
       rs3_valid_i=Input(U.w(4)),
       # get clobber input
-      #input  fu_t [2**REG_ADDR_SIZE-1:0]             rd_clobber_gpr_i,
-      #input  fu_t [2**REG_ADDR_SIZE-1:0]             rd_clobber_fpr_i,
+      rd_clobber_gpr_i=Input(Vec(2**REG_ADDR_SIZE-1, fu_t)),
+      rd_clobber_fpr_i=Input(Vec(2**REG_ADDR_SIZE-1, fu_t)),
       # To FU, just single issue for now
-      #output fu_data_t                               fu_data_o,
-      #output logic [riscv::VLEN-1:0]                 pc_o,
+      fu_data_o=Output(fu_data_t),
+      pc_o=Output(Vec(riscv.VLEN), U.w(4)),
       is_compressed_instr_o=Output(U.w(4)),
       # ALU 1
       flu_ready_i=Input(U.w(4)),      # Fixed latency unit ready to accept a new request
       alu_valid_o=Output(U.w(4)),      # Output is valid
       # Branches and Jumps
       branch_valid_o=Output(U.w(4)),   #  this is a valid branch instruction
-      #output branchpredict_sbe_t                     branch_predict_o,
+      branch_predict_o = Output(branchpredict_sbe_t),
       # LSU
       lsu_ready_i=Input(U.w(4)),      # FU is ready
       lsu_valid_o=Output(U.w(4)),      # Output is valid
@@ -103,7 +64,7 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     fu_busy=Wire(U.w(4)) # functional unit is busy
     operand_a_regfile=Wire(Vec(64,U.w(4))) 
     operand_b_regfile=Wire(Vec(64,U.w(4)))   # operands coming from regfile
-    # logic [FLEN-1:0] operand_c_regfile; # third operand only from fp regfile
+    operand_c_regfile=Wire(Vec(FLEN, U.w(4))) # third operand only from fp regfile
     # output flipflop (ID <-> EX)
     operand_a_n=Wire(Vec(64,U.w(4))) 
     operand_a_q=Wire(Vec(64,U.w(4)))
@@ -121,9 +82,14 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     csr_valid_q=Wire(U.w(4))
     branch_valid_q=Wire(U.w(4))
 
-    #logic [TRANS_ID_BITS-1:0] trans_id_n, trans_id_q;
-    #fu_op operator_n, operator_q; # operation to perform
-    #fu_t  fu_n,       fu_q; # functional unit to use
+    trans_id_n = Wire(Vec(TRANS_ID_BITS), U.w(4))
+    trans_id_q = Wire(Vec(TRANS_ID_BITS), U.w(4))
+    # operation to perform
+    operator_n = fu_op
+    operator_q = fu_op
+    # functional unit to use
+    fu_n = fu_t
+    fu_q = fu_t
 
     # forwarding signals
     forward_rs1=Wire(U.w(4)) 
@@ -131,7 +97,8 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
     forward_rs3=Wire(U.w(4))
 
     # original instruction stored in tval
-    # riscv::instruction_t orig_instr;
+    orig_instr = riscv.instruction_t
+    #TODO
     # orig_instr <<= riscv::instruction_t'(issue_instr_i.ex.tval[31:0]);
 
     # ID <-> EX registers
@@ -210,6 +177,106 @@ def issue_read_operands(NR_COMMIT_PORTS: int):
             forward_rs3 = U.w(1)(1)
         with otherwise(): # the operand is not available -> stall
             stall = U.w(1)(1)
+    # Forwarding/Output MUX
+    # always_comb begin : forwarding_operand_select
+    # default is regfiles (gpr or fpr)
+    operand_a_n = operand_a_regfile
+    operand_b_n = operand_b_regfile
+    # immediates are the third operands in the store case
+    # for FP operations, the imm field can also be the third operand from the regfile
+    imm_n      = Mux(is_imm_fpr(issue_instr_i.op), operand_c_regfile, issue_instr_i.result)
+    trans_id_n = issue_instr_i.trans_id
+    fu_n       = issue_instr_i.fu
+    operator_n = issue_instr_i.op
+    # or should we forward
+    with when(forward_rs1):
+        operand_a_n  = io.rs1_i
+
+    with when(forward_rs2):
+        operand_b_n  = io.rs2_i
+
+    with when(forward_rs3):
+        imm_n  = io.rs3_i
+
+    # use the PC as operand a
+    with when(issue_instr_i.use_pc):
+        ...
+        #TODO
+        # operand_a_n = {{64-riscv.VLEN{issue_instr_i.pc[riscv.VLEN-1]}}, issue_instr_i.pc}
+
+    # use the zimm as operand a
+    with when(issue_instr_i.use_zimm):
+        # zero extend operand a
+        #TODO
+        operand_a_n = {59'b0, issue_instr_i.rs1[4:0]};
+
+    # or is it an immediate (including PC), this is not the case for a store and control flow instructions
+    # also make sure operand B is not already used as an FP operand
+    if (issue_instr_i.use_imm && (issue_instr_i.fu != STORE) && (issue_instr_i.fu != CTRL_FLOW) && !is_rs2_fpr(issue_instr_i.op)) begin
+        operand_b_n = issue_instr_i.result;
+    end
+
+    # FU select, assert the correct valid out signal (in the next cycle)
+    # This needs to be like this to make verilator happy. I know its ugly.
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        alu_valid_q    <= 1'b0;
+        lsu_valid_q    <= 1'b0;
+        mult_valid_q   <= 1'b0;
+        fpu_valid_q    <= 1'b0;
+        fpu_fmt_q      <= 2'b0;
+        fpu_rm_q       <= 3'b0;
+        csr_valid_q    <= 1'b0;
+        branch_valid_q <= 1'b0;
+      end else begin
+        alu_valid_q    <= 1'b0;
+        lsu_valid_q    <= 1'b0;
+        mult_valid_q   <= 1'b0;
+        fpu_valid_q    <= 1'b0;
+        fpu_fmt_q      <= 2'b0;
+        fpu_rm_q       <= 3'b0;
+        csr_valid_q    <= 1'b0;
+        branch_valid_q <= 1'b0;
+        # Exception pass through:
+        # If an exception has occurred simply pass it through
+        # we do not want to issue this instruction
+        if (!issue_instr_i.ex.valid && issue_instr_valid_i && issue_ack_o) begin
+            case (issue_instr_i.fu)
+                ALU:
+                    alu_valid_q    <= 1'b1;
+                CTRL_FLOW:
+                    branch_valid_q <= 1'b1;
+                MULT:
+                    mult_valid_q   <= 1'b1;
+                FPU : begin
+                    fpu_valid_q    <= 1'b1;
+                    fpu_fmt_q      <= orig_instr.rftype.fmt; # fmt bits from instruction
+                    fpu_rm_q       <= orig_instr.rftype.rm;  # rm bits from instruction
+                end
+                FPU_VEC : begin
+                    fpu_valid_q    <= 1'b1;
+                    fpu_fmt_q      <= orig_instr.rvftype.vfmt;         # vfmt bits from instruction
+                    fpu_rm_q       <= {2'b0, orig_instr.rvftype.repl}; # repl bit from instruction
+                end
+                LOAD, STORE:
+                    lsu_valid_q    <= 1'b1;
+                CSR:
+                    csr_valid_q    <= 1'b1;
+                default:;
+            endcase
+        end
+        # if we got a flush request, de-assert the valid flag, otherwise we will start this
+        # functional unit with the wrong inputs
+        if (flush_i) begin
+            alu_valid_q    <= 1'b0;
+            lsu_valid_q    <= 1'b0;
+            mult_valid_q   <= 1'b0;
+            fpu_valid_q    <= 1'b0;
+            csr_valid_q    <= 1'b0;
+            branch_valid_q <= 1'b0;
+        end
+      end
+    end
 
   return issue_read_operands()
 
