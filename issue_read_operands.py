@@ -93,8 +93,8 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
     csr_valid_q=Wire(U.w(4))
     branch_valid_q=Wire(U.w(4))
 
-    trans_id_n = Wire(Vec(TRANS_ID_BITS), U.w(4))
-    trans_id_q = Wire(Vec(TRANS_ID_BITS), U.w(4))
+    trans_id_n = Wire(Vec(TRANS_ID_BITS, U.w(4)))
+    trans_id_q = Wire(Vec(TRANS_ID_BITS, U.w(4)))
     # operation to perform
     operator_n = fu_op
     operator_q = fu_op
@@ -131,7 +131,7 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
     # ---------------
     # Issue Stage
     # ---------------
-
+    
     # select the right busy signal
     # this obviously depends on the functional unit we need
     # always_comb begin : unit_busy
@@ -337,21 +337,117 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
             with when(io.issue_instr_i.ex.valid):
                 issue_ack_o = U.w(1)(1)
             # 2. it is an instruction which does not need any functional unit
-            with (io.issue_instr_i.fu == NONE):
+            with when(io.issue_instr_i.fu == NONE):
                 issue_ack_o = U.w(1)(1)
         # after a multiplication was issued we can only issue another multiplication
         # otherwise we will get contentions on the fixed latency bus
-        with (mult_valid_q and io.issue_instr_i.fu != MULT):
+        with when(mult_valid_q and io.issue_instr_i.fu != MULT):
             issue_ack_o = U.w(1)(0)
-
-
-
-
-
 
         # ----------------------
         # Integer Register File
         # ----------------------
+        rdata = Wire(Vec(2,Vec(64,U.w(4))))
+        raddr_pack = Wire(Vec(2,Vec(5,U.w(4))))
+
+        # pack signals
+        waddr_pack = Wire(Vec(NR_COMMIT_PORTS,Vec(5,U.w(4))))
+        wdata_pack = Wire(Vec(NR_COMMIT_PORTS,Vec(64,U.w(4))))
+        we_pack = Wire(Vec(NR_COMMIT_PORTS,U.w(4)))
+        # TODO:
+        # assign raddr_pack = {issue_instr_i.rs2[4:0], issue_instr_i.rs1[4:0]};
+        for i in range(NR_COMMIT_PORTS): #TODO:gen_write_back_port
+            waddr_pack[i] = io.waddr_i[i]
+            wdata_pack[i] = io.wdata_i[i]
+            we_pack[i]    = io.we_gpr_i[i]
+
+        # ariane_regfile #(
+        #     .DATA_WIDTH     ( 64              ),
+        #     .NR_READ_PORTS  ( 2               ),
+        #     .NR_WRITE_PORTS ( NR_COMMIT_PORTS ),
+        #     .ZERO_REG_ZERO  ( 1               )
+        # ) i_ariane_regfile (
+        #     .test_en_i ( 1'b0       ),
+        #     .raddr_i   ( raddr_pack ),
+        #     .rdata_o   ( rdata      ),
+        #     .waddr_i   ( waddr_pack ),
+        #     .wdata_i   ( wdata_pack ),
+        #     .we_i      ( we_pack    ),
+        #     .*
+        # );
+
+        # -----------------------------
+        # Floating-Point Register File
+        # -----------------------------
+        fprdata = Wire(Vec(3, Vec(FLEN, U.w(4))))
+
+        # pack signals
+        fp_raddr_pack = Wire(Vec(3, Vec(5, U.w(4))))
+        fp_wdata_pack = Wire(Vec(NR_COMMIT_PORTS, Vec(64, U.w(4))))
+
+        #generate
+        #    if (FP_PRESENT) begin : float_regfile_gen
+        #        assign fp_raddr_pack = {issue_instr_i.result[4:0], issue_instr_i.rs2[4:0], issue_instr_i.rs1[4:0]};
+        #        for (genvar i = 0; i < NR_COMMIT_PORTS; i++) begin : gen_fp_wdata_pack
+        #            assign fp_wdata_pack[i] = {wdata_i[i][FLEN-1:0]};
+        #        end
+
+        #        ariane_regfile #(
+        #            .DATA_WIDTH     ( FLEN            ),
+        #            .NR_READ_PORTS  ( 3               ),
+        #            .NR_WRITE_PORTS ( NR_COMMIT_PORTS ),
+        #            .ZERO_REG_ZERO  ( 0               )
+        #        ) i_ariane_fp_regfile (
+        #            .test_en_i ( 1'b0          ),
+        #            .raddr_i   ( fp_raddr_pack ),
+        #            .rdata_o   ( fprdata       ),
+        #            .waddr_i   ( waddr_pack    ),
+        #            .wdata_i   ( wdata_pack    ),
+        #            .we_i      ( we_fpr_i      ),
+        #            .*
+        #        );
+        #    end else begin : no_fpr_gen
+        #        assign fprdata = '{default: '0};
+        #    end
+        #endgenerate
+
+        operand_a_regfile <<= Mux(is_rs1_fpr(io.issue_instr_i.op), fprdata[0], rdata[0])
+        operand_b_regfile <<= Mux(is_rs2_fpr(io.issue_instr_i.op), fprdata[1], rdata[1])
+        operand_c_regfile <<= fprdata[2]
+
+        # ----------------------
+        # Registers (ID <-> EX)
+        # ----------------------
+        #always_ff @(posedge clk_i or negedge rst_ni) begin
+        with when(not io.rst_ni):
+            # operand_a_q           <<= '{default: 0};
+            # operand_b_q           <<= '{default: 0};
+            imm_q                    <<= U(0)
+            fu_q                     <<= NONE
+            operator_q               <<= ADD
+            trans_id_q               <<= U(0)
+            io.pc_o                  <<= U(0)
+            io.is_compressed_instr_o <<= U.w(1)(0)
+            # io.branch_predict_o      <<= {cf_t'(0), U.w(64)(0)};
+        with otherwise():
+            operand_a_q              <<= operand_a_n
+            operand_b_q              <<= operand_b_n
+            imm_q                    <<= imm_n
+            fu_q                     <<= fu_n
+            operator_q               <<= operator_n
+            trans_id_q               <<= trans_id_n
+            io.pc_o                  <<= io.issue_instr_i.pc
+            io.is_compressed_instr_o <<= io.issue_instr_i.is_compressed
+            io.branch_predict_o      <<= io.issue_instr_i.bp
+
+        # pragma translate_off
+        # `ifndef VERILATOR
+        # assert property (
+            # @(posedge clk_i) (branch_valid_q) |-> (!$isunknown(operand_a_q) && !$isunknown(operand_b_q)))
+            # else $warning ("Got unknown value in one of the operands");
+
+        # `endif
+        # pragma translate_on
 
   return issue_read_operands()
 

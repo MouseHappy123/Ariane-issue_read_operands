@@ -13,6 +13,7 @@ FPU       = 7
 FPU_VEC   = 8
 
 fu_op = Enum()
+ADD = 0
 
 REG_ADDR_SIZE = 6
 FLEN = 64
