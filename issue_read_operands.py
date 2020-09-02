@@ -361,20 +361,18 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
             wdata_pack[i] = io.wdata_i[i]
             we_pack[i]    = io.we_gpr_i[i]
 
-        # ariane_regfile #(
-        #     .DATA_WIDTH     ( 64              ),
-        #     .NR_READ_PORTS  ( 2               ),
-        #     .NR_WRITE_PORTS ( NR_COMMIT_PORTS ),
-        #     .ZERO_REG_ZERO  ( 1               )
-        # ) i_ariane_regfile (
-        #     .test_en_i ( 1'b0       ),
-        #     .raddr_i   ( raddr_pack ),
-        #     .rdata_o   ( rdata      ),
-        #     .waddr_i   ( waddr_pack ),
-        #     .wdata_i   ( wdata_pack ),
-        #     .we_i      ( we_pack    ),
-        #     .*
-        # );
+        def ariane_regfile(self,DATA_WIDTH = 64,NR_READ_PORTS  = 2,NR_WRITE_PORTS = NR_COMMIT_PORTS,ZERO_REG_ZERO = 1):
+            class i_ariane_regfile(Module):
+                io = IO(
+                    test_en_i = Input(U.w(1)(0)),
+                    raddr_i =   Input(raddr_pack) ,
+                    rdata_o =   Output(rdata)      ,
+                    waddr_i =   Input(waddr_pack) ,
+                    wdata_i =   Input(wdata_pack) ,
+                    we_i    =   Input(we_pack)    ,
+                    # TODO:*
+                )
+            return i_ariane_regfile()
 
         # -----------------------------
         # Floating-Point Register File
