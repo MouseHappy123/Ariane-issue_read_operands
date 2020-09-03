@@ -58,6 +58,13 @@ else: FLEN = 1          # Unused in case of no FP
 REG_ADDR_SIZE = 6
 NR_WB_PORTS = 4
 
+class cf_t:
+    NoCF = U(0)   # No control flow prediction
+    Branch = U(1) # Branch
+    Jump = U(2)   # Jump to address from immediate
+    JumpR = U(3)  # Jump to address from registers
+    Return = U(4)  # Return Address Prediction
+
 # https://github.com/openhwgroup/cva6/blob/v4.2.0/include/ariane_pkg.sv#L349
 class fu_t:
     NONE      = U(0)

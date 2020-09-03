@@ -313,8 +313,8 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
                 # -----------------------------------------
                 # no other instruction has the same destination register -> issue the instruction
                 with when(Mux(is_rd_fpr(io.issue_instr_i.op), 
-                              (io.rd_clobber_fpr_i[io.issue_instr_i.rd] == NONE), 
-                              (io.rd_clobber_gpr_i[io.issue_instr_i.rd] == NONE))):
+                              (io.rd_clobber_fpr_i[io.issue_instr_i.rd] == fu_t.NONE), 
+                              (io.rd_clobber_gpr_i[io.issue_instr_i.rd] == fu_t.NONE))):
                     io.issue_ack_o = U.w(1)(1)
                 # or check that the target destination register will be written in this cycle by the
                 # commit stage
@@ -411,15 +411,15 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
         # ----------------------
         #always_ff @(posedge clk_i or negedge rst_ni) begin
         with when(not io.rst_ni):
-            # operand_a_q           <<= '{default: 0};
-            # operand_b_q           <<= '{default: 0};
+            operand_a_q              <<= CatBits(*(64 * [U.w(4)(0)]))
+            operand_b_q              <<= CatBits(*(64 * [U.w(4)(0)]))
             imm_q                    <<= U(0)
-            fu_q                     <<= NONE
-            operator_q               <<= ADD
+            fu_q                     <<= fu_t.NONE
+            operator_q               <<= fu_t.ADD
             trans_id_q               <<= U(0)
             io.pc_o                  <<= U(0)
             io.is_compressed_instr_o <<= U.w(1)(0)
-            # io.branch_predict_o      <<= {cf_t'(0), U.w(64)(0)};
+            io.branch_predict_o      <<= CatBits(*(cf_t * [U(0)]), U.w(64)(0))
         with otherwise():
             operand_a_q              <<= operand_a_n
             operand_b_q              <<= operand_b_n
@@ -432,12 +432,12 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
             io.branch_predict_o      <<= io.issue_instr_i.bp
 
         # pragma translate_off
-        # `ifndef VERILATOR
+        if not define('VERILATOR'):
+            assert(True)
         # assert property (
             # @(posedge clk_i) (branch_valid_q) |-> (!$isunknown(operand_a_q) && !$isunknown(operand_b_q)))
             # else $warning ("Got unknown value in one of the operands");
 
-        # `endif
         # pragma translate_on
 
   return issue_read_operands()
