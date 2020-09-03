@@ -109,8 +109,7 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
 
     # original instruction stored in tval
     orig_instr = riscv.instruction_t
-    #TODO
-    # orig_instr <<= riscv::instruction_t'(io.issue_instr_i.ex.tval[31:0]);
+    orig_instr <<= riscv.instruction_t(io.issue_instr_i.ex.tval[31:0])
 
     # ID <-> EX registers
     io.fu_data_o.operand_a <<= operand_a_q
@@ -135,16 +134,16 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
     # select the right busy signal
     # this obviously depends on the functional unit we need
     # always_comb begin : unit_busy
-    with when(io.issue_instr_i.fu == NONE):
+    with when(io.issue_instr_i.fu == fu_t.NONE):
         fu_busy = U.w(1)(0)
-    with elsewhen(io.issue_instr_i.fu == ALU or \
-                  io.issue_instr_i.fu == CTRL_FLOW or \
-                  io.issue_instr_i.fu == CSR or \
-                  io.issue_instr_i.fu == MULT):
+    with elsewhen(io.issue_instr_i.fu == fu_t.ALU or \
+                  io.issue_instr_i.fu == fu_t.CTRL_FLOW or \
+                  io.issue_instr_i.fu == fu_t.CSR or \
+                  io.issue_instr_i.fu == fu_t.MULT):
         fu_busy = ~io.flu_ready_i
-    with elsewhen(io.issue_instr_i == FPU or io.issue_instr_i == FPU_VEC):
+    with elsewhen(io.issue_instr_i == fu_t.FPU or io.issue_instr_i == fu_t.FPU_VEC):
         fu_busy = ~io.fpu_ready_i
-    with elsewhen(io.issue_instr_i == LOAD or io.issue_instr_i == STORE):
+    with elsewhen(io.issue_instr_i == fu_t.LOAD or io.issue_instr_i == fu_t.STORE):
         fu_busy = ~io.lsu_ready_i
     with otherwise():
         fu_busy = U.w(1)(0)
@@ -154,7 +153,7 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
     # ---------------
     # check that all operands are available, otherwise stall
     # forward corresponding register
-    #TODO: always_comb begin : operands_available
+    # always_comb begin : operands_available
     stall = U.w(1)(0)
     # operand forwarding signals
     forward_rs1 = U.w(1)(0)
@@ -171,31 +170,33 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
     # 2. poll the scoreboard
     with when(not io.issue_instr_i.use_zimm and \
               Mux(is_rs1_fpr(io.issue_instr_i.op), 
-                  io.rd_clobber_fpr_i[io.issue_instr_i.rs1] != NONE, 
-                  io.rd_clobber_gpr_i[io.issue_instr_i.rs1] != NONE)):
+                  io.rd_clobber_fpr_i[io.issue_instr_i.rs1] != fu_t.NONE, 
+                  io.rd_clobber_gpr_i[io.issue_instr_i.rs1] != fu_t.NONE)):
         # check if the clobbering instruction is not a CSR instruction, CSR instructions can only
         # be fetched through the register file since they can't be forwarded
         # if the operand is available, forward it. CSRs don't write to/from FPR
         with when(io.rs1_valid_i and \
                   Mux(is_rs1_fpr(io.issue_instr_i.op), 
                       U.w(1)(1), 
-                      io.rd_clobber_gpr_i[io.issue_instr_i.rs1] != CSR)):
+                      io.rd_clobber_gpr_i[io.issue_instr_i.rs1] != fu_t.CSR)):
             forward_rs1 = U.w(1)(1)
         with otherwise(): # the operand is not available -> stall
             stall = U.w(1)(1)
 
-    with when(Mux(is_rs2_fpr(io.issue_instr_i.op), io.rd_clobber_fpr_i[io.issue_instr_i.rs2] != NONE, io.rd_clobber_gpr_i[io.issue_instr_i.rs2] != NONE)):
+    with when(Mux(is_rs2_fpr(io.issue_instr_i.op), 
+                  io.rd_clobber_fpr_i[io.issue_instr_i.rs2] != fu_t.NONE, 
+                  io.rd_clobber_gpr_i[io.issue_instr_i.rs2] != fu_t.NONE)):
         # if the operand is available, forward it. CSRs don't write to/from FPR
         with when(io.rs2_valid_i and \
                   Mux(is_rs2_fpr(io.issue_instr_i.op), 
                       U.w(1)(1), 
-                      io.rd_clobber_gpr_i[io.issue_instr_i.rs2] != CSR)):
+                      io.rd_clobber_gpr_i[io.issue_instr_i.rs2] != fu_t.CSR)):
             forward_rs2 = U.w(1)(1)
         with otherwise(): # the operand is not available -> stall
             stall = U.w(1)(1)
 
     with when(is_imm_fpr(io.issue_instr_i.op) and \
-              io.rd_clobber_fpr_i[io.issue_instr_i.result[REG_ADDR_SIZE-1:0]] != NONE):
+              io.rd_clobber_fpr_i[io.issue_instr_i.result[REG_ADDR_SIZE-1:0]] != fu_t.NONE):
         # if the operand is available, forward it. CSRs don't write to/from FPR so no need to check
         with when(io.rs3_valid_i):
             forward_rs3 = U.w(1)(1)
@@ -226,22 +227,18 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
 
     # use the PC as operand a
     with when(io.issue_instr_i.use_pc):
-        ...
-        #TODO
-        # operand_a_n = {{64-riscv.VLEN{io.issue_instr_i.pc[riscv.VLEN-1]}}, io.issue_instr_i.pc}
+        operand_a_n = CatBits(*([io.issue_instr_i.pc[riscv.VLEN-1]] * (64-riscv.VLEN)), io.issue_instr_i.pc)
 
     # use the zimm as operand a
     with when(io.issue_instr_i.use_zimm):
-        ...
         # zero extend operand a
-        #TODO
-        # operand_a_n = {59'b0, io.issue_instr_i.rs1[4:0]};
+        operand_a_n = CatBits(U.w(59)(0), io.issue_instr_i.rs1[4:0])
 
     # or is it an immediate (including PC), this is not the case for a store and control flow instructions
     # also make sure operand B is not already used as an FP operand
     with when(io.issue_instr_i.use_imm and \
-              io.issue_instr_i.fu != STORE and \
-              io.issue_instr_i.fu != CTRL_FLOW and \
+              io.issue_instr_i.fu != fu_t.STORE and \
+              io.issue_instr_i.fu != fu_t.CTRL_FLOW and \
               not is_rs2_fpr(io.issue_instr_i.op)):
         io.operand_b_n = io.issue_instr_i.result
 
@@ -270,24 +267,23 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
     # If an exception has occurred simply pass it through
     # we do not want to issue this instruction
     with when(not io.issue_instr_i.ex.valid and io.issue_instr_valid_i and io.issue_ack_o):
-        with when(io.issue_instr_i.fu == ALU):
+        with when(io.issue_instr_i.fu == fu_t.ALU):
             alu_valid_q   <<= U.w(1)(1)
-        with elsewhen(io.issue_instr_i.fu == CTRL_FLOW):
+        with elsewhen(io.issue_instr_i.fu == fu_t.CTRL_FLOW):
             branch_valid_q<<= U.w(1)(1)
-        with elsewhen(io.issue_instr_i.fu == MULT):
+        with elsewhen(io.issue_instr_i.fu == fu_t.MULT):
             mult_valid_q  <<= U.w(1)(1)
-        with elsewhen(io.issue_instr_i.fu == FPU):
+        with elsewhen(io.issue_instr_i.fu == fu_t.FPU):
             fpu_valid_q   <<= U.w(1)(1)
             fpu_fmt_q     <<= orig_instr.rftype.fmt; # fmt bits from instruction
             fpu_rm_q      <<= orig_instr.rftype.rm;  # rm bits from instruction
-        with elsewhen(io.issue_instr_i.fu == FPU_VEC):
+        with elsewhen(io.issue_instr_i.fu == fu_t.FPU_VEC):
             fpu_valid_q   <<= U.w(1)(1)
             fpu_fmt_q     <<= orig_instr.rvftype.vfmt;         # vfmt bits from instruction
-            # TODO
-            # fpu_rm_q      <<= {2'b0, orig_instr.rvftype.repl}; # repl bit from instruction
-        with elsewhen(io.issue_instr_i.fu == LOAD or io.issue_instr_i.fu == STORE):
+            fpu_rm_q      <<= CatBits(U.w(2)(0), orig_instr.rvftype.repl); # repl bit from instruction
+        with elsewhen(io.issue_instr_i.fu == fu_t.LOAD or io.issue_instr_i.fu == fu_t.STORE):
             lsu_valid_q   <<= U.w(1)(1)
-        with elsewhen(io.issue_instr_i.fu == CSR):
+        with elsewhen(io.issue_instr_i.fu == fu_t.CSR):
             csr_valid_q   <<= U.w(1)(1)
         with otherwise():
             ...
@@ -322,8 +318,6 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
                     io.issue_ack_o = U.w(1)(1)
                 # or check that the target destination register will be written in this cycle by the
                 # commit stage
-                # TODO
-                # for (int unsigned i = 0; i < NR_COMMIT_PORTS; i++)
                 for i in range(NR_COMMIT_PORTS):
                     with when(Mux(is_rd_fpr(io.issue_instr_i.op),
                               (io.we_fpr_i[i] and io.waddr_i[i] == io.issue_instr_i.rd),
@@ -337,25 +331,24 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
             with when(io.issue_instr_i.ex.valid):
                 issue_ack_o = U.w(1)(1)
             # 2. it is an instruction which does not need any functional unit
-            with when(io.issue_instr_i.fu == NONE):
+            with when(io.issue_instr_i.fu == fu_t.NONE):
                 issue_ack_o = U.w(1)(1)
         # after a multiplication was issued we can only issue another multiplication
         # otherwise we will get contentions on the fixed latency bus
-        with when(mult_valid_q and io.issue_instr_i.fu != MULT):
+        with when(mult_valid_q and io.issue_instr_i.fu != fu_t.MULT):
             issue_ack_o = U.w(1)(0)
 
         # ----------------------
         # Integer Register File
         # ----------------------
-        rdata = Wire(Vec(2,Vec(64,U.w(4))))
-        raddr_pack = Wire(Vec(2,Vec(5,U.w(4))))
+        rdata = Wire(Vec(2, Vec(64, U.w(4))))
+        raddr_pack = Wire(Vec(2, Vec(5, U.w(4))))
 
         # pack signals
         waddr_pack = Wire(Vec(NR_COMMIT_PORTS,Vec(5,U.w(4))))
         wdata_pack = Wire(Vec(NR_COMMIT_PORTS,Vec(64,U.w(4))))
         we_pack = Wire(Vec(NR_COMMIT_PORTS,U.w(4)))
-        # TODO:
-        # assign raddr_pack = {issue_instr_i.rs2[4:0], issue_instr_i.rs1[4:0]};
+        raddr_pack <<= CatBits(io.issue_instr_i.rs2[4:0], io.issue_instr_i.rs1[4:0])
         for i in range(NR_COMMIT_PORTS): #TODO:gen_write_back_port
             waddr_pack[i] = io.waddr_i[i]
             wdata_pack[i] = io.wdata_i[i]
