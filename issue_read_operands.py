@@ -15,6 +15,9 @@ from functools import reduce
 from ariane_pkg import *
 import riscv_pkg as riscv
 
+def isunknown(x):
+    ...
+
 def issue_read_operands(NR_COMMIT_PORTS: int = 2):
   class issue_read_operands(Module):
     io = IO(
@@ -377,9 +380,9 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
         fp_wdata_pack = Wire(Vec(NR_COMMIT_PORTS, Vec(64, U.w(4))))
 
         with when(FP_PRESENT) : #TODO: float_regfile_gen
-            fp_raddr_pack <<= CatBits(io.issue_instr_i.result[4:0], io.issue_instr_i.rs2[4:0], io.issue_instr_i.rs1[4:0]);
+            fp_raddr_pack <<= CatBits(io.issue_instr_i.result[4:0], io.issue_instr_i.rs2[4:0], io.issue_instr_i.rs1[4:0])
             for i in range(NR_COMMIT_PORTS): #TODO: gen_fp_wdata_pack
-                fp_wdata_pack[i] = CatBits(io.wdata_i[i][FLEN-1:0]);
+                fp_wdata_pack[i] = CatBits(io.wdata_i[i][FLEN-1:0])
 
             def ariane_regfile(self,DATA_WIDTH = FLEN,NR_READ_PORTS  = 3,NR_WRITE_PORTS = NR_COMMIT_PORTS,ZERO_REG_ZERO = 0):
                 class i_ariane_fp_regfile(Module):
@@ -406,8 +409,8 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
         # ----------------------
         #always_ff @(posedge clk_i or negedge rst_ni) begin
         with when(not io.rst_ni):
-            operand_a_q              <<= CatBits(*(64 * [U.w(4)(0)]))
-            operand_b_q              <<= CatBits(*(64 * [U.w(4)(0)]))
+            operand_a_q              <<= CatVecL2H(Vec(64, U.w(4)))
+            operand_b_q              <<= CatVecL2H(Vec(64, U.w(4)))
             imm_q                    <<= U(0)
             fu_q                     <<= fu_t.NONE
             operator_q               <<= fu_t.ADD
@@ -426,14 +429,17 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
             io.is_compressed_instr_o <<= io.issue_instr_i.is_compressed
             io.branch_predict_o      <<= io.issue_instr_i.bp
 
-        # pragma translate_off
+        #TODO pragma translate_off
         if not define('VERILATOR'):
             assert(True)
-        # assert property (
-            # @(posedge clk_i) (branch_valid_q) |-> (!$isunknown(operand_a_q) && !$isunknown(operand_b_q)))
-            # else $warning ("Got unknown value in one of the operands");
+        counter = RegInit(U.w(4)(0))
+        counter <<= counter + U(1)
+        with when(counter and branch_valid_q):
+            assert(not isunknown(operand_a_q) and not isunknown(operand_b_q))
+        with otherwise():
+            print("Got unknown value in one of the operands")
 
-        # pragma translate_on
+        #TODO pragma translate_on
 
   return issue_read_operands()
 
