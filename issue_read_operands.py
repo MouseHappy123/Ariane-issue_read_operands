@@ -376,31 +376,26 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
         fp_raddr_pack = Wire(Vec(3, Vec(5, U.w(4))))
         fp_wdata_pack = Wire(Vec(NR_COMMIT_PORTS, Vec(64, U.w(4))))
 
-        #generate
-        #    if (FP_PRESENT) begin : float_regfile_gen
-        #        assign fp_raddr_pack = {issue_instr_i.result[4:0], issue_instr_i.rs2[4:0], issue_instr_i.rs1[4:0]};
-        #        for (genvar i = 0; i < NR_COMMIT_PORTS; i++) begin : gen_fp_wdata_pack
-        #            assign fp_wdata_pack[i] = {wdata_i[i][FLEN-1:0]};
-        #        end
+        with when(FP_PRESENT) : #TODO: float_regfile_gen
+            fp_raddr_pack <<= CatBits(io.issue_instr_i.result[4:0], io.issue_instr_i.rs2[4:0], io.issue_instr_i.rs1[4:0]);
+            for i in range(NR_COMMIT_PORTS): #TODO: gen_fp_wdata_pack
+                fp_wdata_pack[i] = CatBits(io.wdata_i[i][FLEN-1:0]);
 
-        #        ariane_regfile #(
-        #            .DATA_WIDTH     ( FLEN            ),
-        #            .NR_READ_PORTS  ( 3               ),
-        #            .NR_WRITE_PORTS ( NR_COMMIT_PORTS ),
-        #            .ZERO_REG_ZERO  ( 0               )
-        #        ) i_ariane_fp_regfile (
-        #            .test_en_i ( 1'b0          ),
-        #            .raddr_i   ( fp_raddr_pack ),
-        #            .rdata_o   ( fprdata       ),
-        #            .waddr_i   ( waddr_pack    ),
-        #            .wdata_i   ( wdata_pack    ),
-        #            .we_i      ( we_fpr_i      ),
-        #            .*
-        #        );
-        #    end else begin : no_fpr_gen
-        #        assign fprdata = '{default: '0};
-        #    end
-        #endgenerate
+            def ariane_regfile(self,DATA_WIDTH = FLEN,NR_READ_PORTS  = 3,NR_WRITE_PORTS = NR_COMMIT_PORTS,ZERO_REG_ZERO = 0):
+                class i_ariane_fp_regfile(Module):
+                    io = IO(
+                        test_en_i = Input(U.w(1)(0)),
+                        raddr_i =   Input(fp_raddr_pack) ,
+                        rdata_o =   Output(fprdata)      ,
+                        waddr_i =   Input(waddr_pack) ,
+                        wdata_i =   Input(wdata_pack) ,
+                        we_i    =   Input(we_fpr_i)    ,
+                        # TODO:*
+                    )
+                return i_ariane_fp_regfile()
+
+        with otherwise(): #TODO: no_fpr_gen
+            fprdata = CatVecL2H(Vec(3, Vec(FLEN, U.w(4))));
 
         operand_a_regfile <<= Mux(is_rs1_fpr(io.issue_instr_i.op), fprdata[0], rdata[0])
         operand_b_regfile <<= Mux(is_rs2_fpr(io.issue_instr_i.op), fprdata[1], rdata[1])
