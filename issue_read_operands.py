@@ -395,7 +395,7 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
                 return i_ariane_fp_regfile()
 
         with otherwise(): #TODO: no_fpr_gen
-            fprdata = CatVecL2H(Vec(3, Vec(FLEN, U.w(4))));
+            fprdata = CatVecL2H(Vec(3, Vec(FLEN, U.w(4))))
 
         operand_a_regfile <<= Mux(is_rs1_fpr(io.issue_instr_i.op), fprdata[0], rdata[0])
         operand_b_regfile <<= Mux(is_rs2_fpr(io.issue_instr_i.op), fprdata[1], rdata[1])

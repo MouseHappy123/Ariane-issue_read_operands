@@ -59,12 +59,29 @@ else: FLEN = 1          # Unused in case of no FP
 REG_ADDR_SIZE = 6
 NR_WB_PORTS = 4
 
+# Only use struct when signals have same direction
+# exception
+exception_t=Bundle(
+    cause=Vec(64, U.w(4)), # cause of exception
+    tval=Vec(64, U.w(4)),  # additional information of causing exception (e.g.: instruction causing it),
+                           # address of LD/ST fault
+    valid=U.w(4)
+)
+
 class cf_t:
     NoCF = U(0)   # No control flow prediction
     Branch = U(1) # Branch
     Jump = U(2)   # Jump to address from immediate
     JumpR = U(3)  # Jump to address from registers
     Return = U(4)  # Return Address Prediction
+
+# branchpredict scoreboard entry
+# this is the struct which we will inject into the pipeline to guide the various
+# units towards the correct branch decision and resolve
+branchpredict_sbe_t=Bundle(
+    cf=cf_t,                                 # type of control flow prediction
+    predict_address=Vec(riscv.VLEN, U.w(4))  # target address at which to jump, or not
+)
 
 # https://github.com/openhwgroup/cva6/blob/v4.2.0/include/ariane_pkg.sv#L349
 class fu_t:
@@ -120,6 +137,14 @@ class fu_op:
     # Vectorial Floating-Point Instructions that don't directly map onto the scalar ones
     VFMIN, VFMAX, VFSGNJ, VFSGNJN, VFSGNJX, VFEQ, VFNE, VFLT, VFGE, VFLE, VFGT, VFCPKAB_S, VFCPKCD_S, VFCPKAB_D, VFCPKCD_D = U(107), U(108), U(109), U(110), U(111), U(112), U(113), U(114), U(115), U(116), U(117), U(118), U(119), U(120), U(121)
 
+fu_data_t=Bundle(
+    fu=fu_t,
+    operator=fu_op,
+    operand_a=Vec(64, U.w(4)),
+    operand_b=Vec(64, U.w(4)),
+    imm=Vec(64, U.w(4)),
+    trans_id=Vec(TRANS_ID_BITS, U.w(4))
+)
 
 # https://github.com/openhwgroup/cva6/blob/v4.2.0/include/ariane_pkg.sv#L488
 def is_rs1_fpr(op: fu_op):
@@ -221,7 +246,3 @@ scoreboard_entry_t = Bundle(
     is_compressed=U.w(4)                    # signals a compressed instructions, we need this information at the commit stage if
                                             # we want jump accordingly e.g.: +4, +2
 )
-
-fu_data_t = {}
-branchpredict_sbe_t = {}
-
