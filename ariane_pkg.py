@@ -1,5 +1,6 @@
 from pyhcl import *
 from math import ceil, log2
+import riscv_pkg as riscv
 
 def Range(start: U, stop: U):
     for i in range(start.to_uint(), stop.to_uint()):
@@ -139,15 +140,88 @@ def is_rs1_fpr(op: fu_op):
     else:
         return U.w(1)(0)
 
-def is_rs2_fpr(): ...
-def is_imm_fpr(): ...
-def is_rd_fpr(): ...
+def is_rs2_fpr(op: fu_op):
+    if FP_PRESENT: # makes function static for non-fp case
+        if op in [
+            *list(Range(fu_op.FSD, fu_op.FSB)),       # FP Stores
+            *list(Range(fu_op.FADD, fu_op.FMIN_MAX)), # Computational Operations (no sqrt)
+            *list(Range(fu_op.FMADD, fu_op.FNMADD)),  # Fused Computational Operations
+            fu_op.FCVT_F2F,                           # Vectorial F2F Conversions requrie target
+            *list(Range(fu_op.FSGNJ, fu_op.FMV_F2X)), # Sign Injections and moves mapped to SGNJ
+            fu_op.FCMP,                               # Comparisons
+            *list(Range(fu_op.VFMIN, fu_op.VFCPKCD_D))# Additional Vectorial FP ops
+        ]:
+            return U.w(1)(1)
+        else:
+            return U.w(1)(0) # all other ops
+    else:
+        return U.w(1)(0)
+
+# ternary operations encode the rs3 address in the imm field, also add/sub
+def is_imm_fpr(op: fu_op):
+    if FP_PRESENT:
+        if op in [
+            *list(Range(fu_op.FADD, fu_op.FSUB)),          # ADD/SUB need inputs as Operand B/C
+            *list(Range(fu_op.FMADD, fu_op.FNMADD)),       # Fused Computational Operations
+            *list(Range(fu_op.VFCPKAB_S, fu_op.VFCPKCD_D)) # Vectorial FP cast and pack ops
+        ]:
+            return U.w(1)(1)
+        else:
+            return U.w(1)(0) # all other ops
+    else:
+        return U.w(1)(0)
+
+def is_rd_fpr(op: fu_op):
+    if FP_PRESENT:
+        if op in [
+            *list(Range(fu_op.FLD, fu_op.FLB)),            # FP Loads
+            *list(Range(fu_op.FADD, fu_op.FNMADD)),        # Computational Operations
+            fu_op.FCVT_I2F,                                # Int-Float Casts
+            fu_op.FCVT_F2F,                                # Float-Float Casts
+            fu_op.FSGNJ,                                   # Sign Injections
+            fu_op.FMV_X2F,                                 # GPR-FPR Moves
+            *list(Range(fu_op.VFMIN, fu_op.VFSGNJX)),      # Vectorial MIN/MAX and SGNJ
+            *list(Range(fu_op.VFCPKAB_S, fu_op.VFCPKCD_D)) # Vectorial FP cast and pack ops
+        ]:
+            return U.w(1)(1)
+        else:
+            return U.w(1)(0) # all other ops
+    else:
+        return U.w(1)(0)
+
 NR_SB_ENTRIES = 8 # number of scoreboard entries
 TRANS_ID_BITS = ceil(log2(NR_SB_ENTRIES))
 # depending on the number of scoreboard entries we need that many bits
 # to uniquely identify the entry in the scoreboard
 
-scoreboard_entry_t = {}
+
+# https://github.com/openhwgroup/cva6/blob/v4.2.0/include/ariane_pkg.sv#L585
+# ---------------
+# ID/EX/WB Stage
+# ---------------
+scoreboard_entry_t = Bundle(
+    pc=Vec(riscv.VLEN, U.w(4)),             # PC of instruction
+    trans_id=Vec(TRANS_ID_BITS, U.w(4)),    # this can potentially be simplified, we could index the scoreboard entry
+                                            # with the transaction id in any case make the width more generic
+    fu=fu_t,                                # functional unit to use
+    op=fu_op,                               # operation to perform in each functional unit
+    rs1=Vec(REG_ADDR_SIZE, U.w(4)),         # register source address 1
+    rs2=Vec(REG_ADDR_SIZE, U.w(4)),         # register source address 2
+    rd=Vec(REG_ADDR_SIZE, U.w(4)),          # register destination address
+    result=Vec(64, U.w(4)),                 # for unfinished instructions this field also holds the immediate,
+                                            # for unfinished floating-point that are partly encoded in rs2, this field also holds rs2
+                                            # for unfinished floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
+                                            # this field holds the address of the third operand from the floating-point register file
+    valid=U.w(4),                           # is the result valid
+    use_imm=U.w(4),                         # should we use the immediate as operand b?
+    use_zimm=U.w(4),                        # use zimm as operand a
+    use_pc=U.w(4),                          # set if we need to use the PC as operand a, PC from exception
+    ex=exception_t,                         # exception has occurred
+    bp=branchpredict_sbe_t,                 # branch predict scoreboard data structure
+    is_compressed=U.w(4)                    # signals a compressed instructions, we need this information at the commit stage if
+                                            # we want jump accordingly e.g.: +4, +2
+)
+
 fu_data_t = {}
 branchpredict_sbe_t = {}
 

@@ -28,10 +28,10 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
       issue_ack_o=Output(U.w(4)),
       # lookup rd in scoreboard
       rs1_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
-      rs1_i=Input(Vec(64,U.w(4)), U.w(4)),
+      rs1_i=Input(Vec(64, U.w(4))),
       rs1_valid_i=Input(U.w(4)),
       rs2_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
-      rs2_i=Input(Vec(64,U.w(4))),
+      rs2_i=Input(Vec(64, U.w(4))),
       rs2_valid_i=Input(U.w(4)),
       rs3_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
       rs3_i=Input(Vec(FLEN, U.w(4))),
