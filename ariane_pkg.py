@@ -62,10 +62,10 @@ NR_WB_PORTS = 4
 # Only use struct when signals have same direction
 # exception
 exception_t=Bundle(
-    cause=Vec(64, U.w(4)), # cause of exception
-    tval=Vec(64, U.w(4)),  # additional information of causing exception (e.g.: instruction causing it),
+    cause=U.w(64), # cause of exception
+    tval=U.w(64),  # additional information of causing exception (e.g.: instruction causing it),
                            # address of LD/ST fault
-    valid=U.w(4)
+    valid=U.w(1)
 )
 
 class cf_t:
@@ -80,7 +80,7 @@ class cf_t:
 # units towards the correct branch decision and resolve
 branchpredict_sbe_t=Bundle(
     cf=cf_t,                                 # type of control flow prediction
-    predict_address=Vec(riscv.VLEN, U.w(4))  # target address at which to jump, or not
+    predict_address=U.w(riscv.VLEN)  # target address at which to jump, or not
 )
 
 # https://github.com/openhwgroup/cva6/blob/v4.2.0/include/ariane_pkg.sv#L349
@@ -140,10 +140,10 @@ class fu_op:
 fu_data_t=Bundle(
     fu=fu_t,
     operator=fu_op,
-    operand_a=Vec(64, U.w(4)),
-    operand_b=Vec(64, U.w(4)),
-    imm=Vec(64, U.w(4)),
-    trans_id=Vec(TRANS_ID_BITS, U.w(4))
+    operand_a=U.w(64),
+    operand_b=U.w(64),
+    imm=U.w(64),
+    trans_id=U.w(TRANS_ID_BITS)
 )
 
 # https://github.com/openhwgroup/cva6/blob/v4.2.0/include/ariane_pkg.sv#L488
@@ -225,24 +225,24 @@ TRANS_ID_BITS = ceil(log2(NR_SB_ENTRIES))
 # ID/EX/WB Stage
 # ---------------
 scoreboard_entry_t = Bundle(
-    pc=Vec(riscv.VLEN, U.w(4)),             # PC of instruction
-    trans_id=Vec(TRANS_ID_BITS, U.w(4)),    # this can potentially be simplified, we could index the scoreboard entry
+    pc=U.w(riscv.VLEN),             # PC of instruction
+    trans_id=U.w(TRANS_ID_BITS),    # this can potentially be simplified, we could index the scoreboard entry
                                             # with the transaction id in any case make the width more generic
     fu=fu_t,                                # functional unit to use
     op=fu_op,                               # operation to perform in each functional unit
-    rs1=Vec(REG_ADDR_SIZE, U.w(4)),         # register source address 1
-    rs2=Vec(REG_ADDR_SIZE, U.w(4)),         # register source address 2
-    rd=Vec(REG_ADDR_SIZE, U.w(4)),          # register destination address
-    result=Vec(64, U.w(4)),                 # for unfinished instructions this field also holds the immediate,
+    rs1=U.w(REG_ADDR_SIZE),         # register source address 1
+    rs2=U.w(REG_ADDR_SIZE),         # register source address 2
+    rd=U.w(REG_ADDR_SIZE),          # register destination address
+    result=U.w(64),                 # for unfinished instructions this field also holds the immediate,
                                             # for unfinished floating-point that are partly encoded in rs2, this field also holds rs2
                                             # for unfinished floating-point fused operations (FMADD, FMSUB, FNMADD, FNMSUB)
                                             # this field holds the address of the third operand from the floating-point register file
-    valid=U.w(4),                           # is the result valid
-    use_imm=U.w(4),                         # should we use the immediate as operand b?
-    use_zimm=U.w(4),                        # use zimm as operand a
-    use_pc=U.w(4),                          # set if we need to use the PC as operand a, PC from exception
+    valid=U.w(1),                           # is the result valid
+    use_imm=U.w(1),                         # should we use the immediate as operand b?
+    use_zimm=U.w(1),                        # use zimm as operand a
+    use_pc=U.w(1),                          # set if we need to use the PC as operand a, PC from exception
     ex=exception_t,                         # exception has occurred
     bp=branchpredict_sbe_t,                 # branch predict scoreboard data structure
-    is_compressed=U.w(4)                    # signals a compressed instructions, we need this information at the commit stage if
+    is_compressed=U.w(1)                    # signals a compressed instructions, we need this information at the commit stage if
                                             # we want jump accordingly e.g.: +4, +2
 )
