@@ -9,83 +9,83 @@ def isunknown(x):
 def issue_read_operands(NR_COMMIT_PORTS: int = 2):
   class issue_read_operands(Module):
     io = IO(
-      clk_i=Input(U.w(4)), # Clock
-      rst_ni=Input(U.w(4)), # Asynchronous reset active low
+      clk_i=Input(U.w(1)), # Clock
+      rst_ni=Input(U.w(1)), # Asynchronous reset active low
       # flush
-      flush_i=Input(U.w(4)),
+      flush_i=Input(U.w(1)),
       # coming from rename
       issue_instr_i=Input(scoreboard_entry_t),
-      issue_instr_valid_i=Input(U.w(4)),
-      issue_ack_o=Output(U.w(4)),
+      issue_instr_valid_i=Input(U.w(1)),
+      issue_ack_o=Output(U.w(1)),
       # lookup rd in scoreboard
-      rs1_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
-      rs1_i=Input(Vec(64, U.w(4))),
-      rs1_valid_i=Input(U.w(4)),
-      rs2_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
-      rs2_i=Input(Vec(64, U.w(4))),
-      rs2_valid_i=Input(U.w(4)),
-      rs3_o=Output(Vec(REG_ADDR_SIZE, U.w(4))),
-      rs3_i=Input(Vec(FLEN, U.w(4))),
-      rs3_valid_i=Input(U.w(4)),
+      rs1_o=Output(U.w(REG_ADDR_SIZE)),
+      rs1_i=Input(U.w(64)),
+      rs1_valid_i=Input(U.w(1)),
+      rs2_o=Output(U.w(REG_ADDR_SIZE)),
+      rs2_i=Input(U.w(64)),
+      rs2_valid_i=Input(U.w(1)),
+      rs3_o=Output(U.w(REG_ADDR_SIZE)),
+      rs3_i=Input(U.w(FLEN)),
+      rs3_valid_i=Input(U.w(1)),
       # get clobber input
       rd_clobber_gpr_i=Input(Vec(2**REG_ADDR_SIZE-1, fu_t)),
       rd_clobber_fpr_i=Input(Vec(2**REG_ADDR_SIZE-1, fu_t)),
       # To FU, just single issue for now
       fu_data_o=Output(fu_data_t),
-      pc_o=Output(Vec(riscv.VLEN), U.w(4)),
-      is_compressed_instr_o=Output(U.w(4)),
+      pc_o=Output(U.w(riscv.VLEN)),
+      is_compressed_instr_o=Output(U.w(1)),
       # ALU 1
-      flu_ready_i=Input(U.w(4)),      # Fixed latency unit ready to accept a new request
-      alu_valid_o=Output(U.w(4)),      # Output is valid
+      flu_ready_i=Input(U.w(1)),      # Fixed latency unit ready to accept a new request
+      alu_valid_o=Output(U.w(1)),      # Output is valid
       # Branches and Jumps
-      branch_valid_o=Output(U.w(4)),   #  this is a valid branch instruction
+      branch_valid_o=Output(U.w(1)),   #  this is a valid branch instruction
       branch_predict_o = Output(branchpredict_sbe_t),
       # LSU
-      lsu_ready_i=Input(U.w(4)),      # FU is ready
-      lsu_valid_o=Output(U.w(4)),      # Output is valid
+      lsu_ready_i=Input(U.w(1)),      # FU is ready
+      lsu_valid_o=Output(U.w(1)),      # Output is valid
       # MULT
-      mult_valid_o=Output(U.w(4)),     # Output is valid
+      mult_valid_o=Output(U.w(1)),     # Output is valid
       # FPU
-      fpu_ready_i=Input(U.w(4)),      # FU is ready
-      fpu_valid_o=Output(U.w(4)),      # Output is valid
-      fpu_fmt_o=Output(Vec(2,U.w(4))),        # FP fmt field from instr.
-      fpu_rm_o=Output(Vec(3,U.w(4))),         # FP rm field from instr.
+      fpu_ready_i=Input(U.w(1)),      # FU is ready
+      fpu_valid_o=Output(U.w(1)),      # Output is valid
+      fpu_fmt_o=Output(U.w(2)),        # FP fmt field from instr.
+      fpu_rm_o=Output(U.w(3)),         # FP rm field from instr.
       # CSR
-      csr_valid_o=Output(U.w(4)),      # Output is valid
+      csr_valid_o=Output(U.w(1)),      # Output is valid
       # commit port
-      waddr_i=Input(Vec(NR_COMMIT_PORTS,Vec(5,U.w(4)))),
-      wdata_i=Input(Vec(NR_COMMIT_PORTS,Vec(64,U.w(4)))),
-      we_gpr_i=Input(Vec(NR_COMMIT_PORTS,U.w(4))),
-      we_fpr_i=Input(Vec(NR_COMMIT_PORTS,U.w(4)))
+      waddr_i=Input(Vec(NR_COMMIT_PORTS,Vec(5,U.w(1)))),
+      wdata_i=Input(Vec(NR_COMMIT_PORTS,Vec(64,U.w(1)))),
+      we_gpr_i=Input(U.w(NR_COMMIT_PORTS)),
+      we_fpr_i=Input(U.w(NR_COMMIT_PORTS))
       # committing instruction instruction
       # from scoreboard
       # input  scoreboard_entry     commit_instr_i,
       # output logic                commit_ack_o
     )
-    stall=Wire(U.w(4))   # stall signal, we do not want to fetch any more entries
-    fu_busy=Wire(U.w(4)) # functional unit is busy
-    operand_a_regfile=Wire(Vec(64,U.w(4))) 
-    operand_b_regfile=Wire(Vec(64,U.w(4)))   # operands coming from regfile
-    operand_c_regfile=Wire(Vec(FLEN, U.w(4))) # third operand only from fp regfile
+    stall=Wire(U.w(1))   # stall signal, we do not want to fetch any more entries
+    fu_busy=Wire(U.w(1)) # functional unit is busy
+    operand_a_regfile=Wire(U.w(64)) 
+    operand_b_regfile=Wire(U.w(64))   # operands coming from regfile
+    operand_c_regfile=Wire(U.w(FLEN)) # third operand only from fp regfile
     # output flipflop (ID <-> EX)
-    operand_a_n=Wire(Vec(64,U.w(4))) 
-    operand_a_q=Wire(Vec(64,U.w(4)))
-    operand_b_n=Wire(Vec(64,U.w(4)))
-    operand_b_q=Wire(Vec(64,U.w(4)))
-    imm_n=Wire(Vec(64,U.w(4)))
-    imm_q=Wire(Vec(64,U.w(4)))
+    operand_a_n=Wire(U.w(64)) 
+    operand_a_q=Wire(U.w(64))
+    operand_b_n=Wire(U.w(64))
+    operand_b_q=Wire(U.w(64))
+    imm_n=Wire(U.w(64))
+    imm_q=Wire(U.w(64))
 
-    alu_valid_q=Wire(U.w(4))
-    mult_valid_q=Wire(U.w(4))
-    fpu_valid_q=Wire(U.w(4))
-    fpu_fmt_q=Wire(Vec(2,U.w(4)))
-    fpu_rm_q=Wire(Vec(3,U.w(4)))
-    lsu_valid_q=Wire(U.w(4))
-    csr_valid_q=Wire(U.w(4))
-    branch_valid_q=Wire(U.w(4))
+    alu_valid_q=Wire(U.w(1))
+    mult_valid_q=Wire(U.w(1))
+    fpu_valid_q=Wire(U.w(1))
+    fpu_fmt_q=Wire(U.w(2))
+    fpu_rm_q=Wire(U.w(3))
+    lsu_valid_q=Wire(U.w(1))
+    csr_valid_q=Wire(U.w(1))
+    branch_valid_q=Wire(U.w(1))
 
-    trans_id_n = Wire(Vec(TRANS_ID_BITS, U.w(4)))
-    trans_id_q = Wire(Vec(TRANS_ID_BITS, U.w(4)))
+    trans_id_n = Wire(U.w(TRANS_ID_BITS))
+    trans_id_q = Wire(U.w(TRANS_ID_BITS))
     # operation to perform
     operator_n = fu_op
     operator_q = fu_op
@@ -94,9 +94,9 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
     fu_q = fu_t
 
     # forwarding signals
-    forward_rs1=Wire(U.w(4)) 
-    forward_rs2=Wire(U.w(4)) 
-    forward_rs3=Wire(U.w(4))
+    forward_rs1=Wire(U.w(1)) 
+    forward_rs2=Wire(U.w(1)) 
+    forward_rs3=Wire(U.w(1))
 
     # original instruction stored in tval
     orig_instr = riscv.instruction_t
@@ -332,13 +332,13 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
         # ----------------------
         # Integer Register File
         # ----------------------
-        rdata = Wire(Vec(2, Vec(64, U.w(4))))
-        raddr_pack = Wire(Vec(2, Vec(5, U.w(4))))
+        rdata = Wire(Vec(2, U.w(64)))
+        raddr_pack = Wire(Vec(2, U.w(5)))
 
         # pack signals
-        waddr_pack = Wire(Vec(NR_COMMIT_PORTS,Vec(5,U.w(4))))
-        wdata_pack = Wire(Vec(NR_COMMIT_PORTS,Vec(64,U.w(4))))
-        we_pack = Wire(Vec(NR_COMMIT_PORTS,U.w(4)))
+        waddr_pack = Wire(Vec(NR_COMMIT_PORTS,U.w(5)))
+        wdata_pack = Wire(Vec(NR_COMMIT_PORTS,U.w(64)))
+        we_pack = Wire(U.w(NR_COMMIT_PORTS))
         raddr_pack <<= CatBits(io.issue_instr_i.rs2[4:0], io.issue_instr_i.rs1[4:0])
         for i in range(NR_COMMIT_PORTS): #TODO:gen_write_back_port
             waddr_pack[i] = io.waddr_i[i]
@@ -361,11 +361,11 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
         # -----------------------------
         # Floating-Point Register File
         # -----------------------------
-        fprdata = Wire(Vec(3, Vec(FLEN, U.w(4))))
+        fprdata = Wire(Vec(3, U.w(FLEN)))
 
         # pack signals
-        fp_raddr_pack = Wire(Vec(3, Vec(5, U.w(4))))
-        fp_wdata_pack = Wire(Vec(NR_COMMIT_PORTS, Vec(64, U.w(4))))
+        fp_raddr_pack = Wire(Vec(3, U.w(5)))
+        fp_wdata_pack = Wire(Vec(NR_COMMIT_PORTS, U.w(64)))
 
         with when(FP_PRESENT) : #TODO: float_regfile_gen
             fp_raddr_pack <<= CatBits(io.issue_instr_i.result[4:0], io.issue_instr_i.rs2[4:0], io.issue_instr_i.rs1[4:0])
@@ -386,7 +386,7 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
                 return i_ariane_fp_regfile()
 
         with otherwise(): #TODO: no_fpr_gen
-            fprdata = CatVecL2H(Vec(3, Vec(FLEN, U.w(4))))
+            fprdata = CatVecL2H(Vec(3,U.w(FLEN)))
 
         operand_a_regfile <<= Mux(is_rs1_fpr(io.issue_instr_i.op), fprdata[0], rdata[0])
         operand_b_regfile <<= Mux(is_rs2_fpr(io.issue_instr_i.op), fprdata[1], rdata[1])
@@ -397,8 +397,8 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
         # ----------------------
         #always_ff @(posedge clk_i or negedge rst_ni) begin
         with when(not io.rst_ni):
-            operand_a_q              <<= CatVecL2H(Vec(64, U.w(4)))
-            operand_b_q              <<= CatVecL2H(Vec(64, U.w(4)))
+            operand_a_q              <<= CatVecL2H(U.w(64))
+            operand_b_q              <<= CatVecL2H(U.w(64))
             imm_q                    <<= U(0)
             fu_q                     <<= fu_t.NONE
             operator_q               <<= fu_t.ADD
@@ -419,7 +419,7 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
 
         #TODO pragma translate_off
         if not define('VERILATOR'):
-            counter = RegInit(U.w(4)(0))
+            counter = RegInit(U.w(1)(0))
             counter <<= counter + U(1)
             with when(counter and branch_valid_q):
                 assert(not isunknown(operand_a_q) and not isunknown(operand_b_q))
