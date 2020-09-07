@@ -1,22 +1,10 @@
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-
 from pyhcl import *
 from functools import reduce
 from ariane_pkg import *
 import riscv_pkg as riscv
 
 def isunknown(x):
-    ...
+    return x == None
 
 def issue_read_operands(NR_COMMIT_PORTS: int = 2):
   class issue_read_operands(Module):
@@ -431,13 +419,12 @@ def issue_read_operands(NR_COMMIT_PORTS: int = 2):
 
         #TODO pragma translate_off
         if not define('VERILATOR'):
-            assert(True)
-        counter = RegInit(U.w(4)(0))
-        counter <<= counter + U(1)
-        with when(counter and branch_valid_q):
-            assert(not isunknown(operand_a_q) and not isunknown(operand_b_q))
-        with otherwise():
-            print("Got unknown value in one of the operands")
+            counter = RegInit(U.w(4)(0))
+            counter <<= counter + U(1)
+            with when(counter and branch_valid_q):
+                assert(not isunknown(operand_a_q) and not isunknown(operand_b_q))
+            with otherwise():
+                print("Got unknown value in one of the operands")
 
         #TODO pragma translate_on
 
